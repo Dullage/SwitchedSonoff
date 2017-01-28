@@ -4,11 +4,13 @@ Allows WiFi and Rocker Switch control of 1 or more relays using an ESP8266 contr
 Personally I use this code to control the mains lighting in our house.
 
 As much as I have tried to reduce duplication by creating a class there is still a number of steps that need to be taken when adding more switch / relay combination. For each switch / relay combination you'll need to:
+
 1. Create an instance of the switchedRelay class.
 2. Add MQTT subscriptions in the reconnect() function.
 3. Add a section in the callback() function to listen for device messages.
 4. Add a section in the mqttBus() function to publish device messages.
 5. Add a device specific switchDevice() funciton in the loop() function.
+
 *Note: Each step is clearly commented in SwitchedRelay.ino*
 
 ## Features
