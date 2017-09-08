@@ -1,24 +1,12 @@
 ## Overview
-Allows WiFi and Rocker Switch control of 1 or more relays using an ESP8266 controller and an MQTT broker. Designed to work well with Home Assistant https://home-assistant.io/.
-
-Personally I use this code to control the mains lighting in our house.
-
-As much as I have tried to reduce duplication by creating a class there is still a number of steps that need to be taken when adding more switch / relay combination. For each switch / relay combination you'll need to:
-
-1. Create an instance of the switchedRelay class.
-2. Add MQTT subscriptions in the reconnect() function.
-3. Add a section in the callback() function to listen for device messages.
-4. Add a section in the mqttBus() function to publish device messages.
-5. Add a device specific switchDevice() funciton in the loop() function.
-
-*Note: Each step is clearly commented in SwitchedRelay.ino*
+Alternative Sonoff firmware.
 
 ## Features
 * Works well with Home Assistant.
+* Add functionality to allow for a switch (e.g. wall light switch) to also control the Sonoff device.
 * Basic control using simple MQTT commands (e.g. "1" to turn on, "0" to turn off).
 * Trigger a Home Assistant automation with a double toggle of the switch.
 * Restart the ESP with 6 toggles of the switch.
-* Plug in as many switches and relays as your ESP will support.
 * Utilizes a non-blocking reconnect function allowing switch control to continue if MQTT or WiFi connection is lost.
 * Automatic Recovery and Offline Mode (see below)
 * Retained Statuses - The state is published as a retained message allowing your hub (e.g. Home Assistant) to grab the current state if it is restarted. Also used for recovery.
@@ -40,20 +28,20 @@ The following libraries are required and so must be present when compiling.
 ## Recovery and Offline Mode
 There are a couple of scenarios that needed to be worked around:
 
-**Short-Term Issues** - The ESP8266 can be tricky when trying to detect WiFi disconnections. In a lot of cases my device believed it was connected to WiFi and so was trying to connect to the MQTT broker, in fact it had lost it's WiFi conection and so was stuck. 
+**Short-Term Issues** - The ESP8266 (built into the Sonoff device) can be tricky when trying to detect WiFi disconnections. In a lot of cases my device believed it was connected to WiFi and so was trying to connect to the MQTT broker, in fact it had lost it's WiFi conection and so was stuck. 
 
 **Long-Term Issues** - We also want to be able to carry on using our lights without any WiFi / MQTT connection. I'm not sure my girlfriend would be happy if a router / Raspberry Pi issue meant no lights :-)
 
 
 **Useful for both scenarios:**
-* The switch control continues to operate whilst the ESP is trying to reconnect to either the WiFi or MQTT broker.
-* When the ESP is first started it grabs the retained state message for each relay and uses it to recover it's last state. *Note: Recovery won't happen if the ESP is still unable to connect.*
+* The switch control continues to operate whilst the Sonoff is trying to reconnect to either the WiFi or MQTT broker.
+* When the Sonoff is first started it grabs the retained state message and uses it to recover it's last state. *Note: Recovery won't happen if the Sonoff is still unable to connect.*
 
 **Useful for short-term issues:**
-* A restart of the ESP is triggered if 2 minutes has elapsed without a connection (see below). This solves most short-term issues.
+* A restart of the Sonoff is triggered if 2 minutes has elapsed without a connection (see below). This solves most short-term issues.
 
 **Useful for long-term issues:**
-* The 2 minute restart is not triggered if no connection has been made since the ESP started. The ESP then sits in an Offline Mode until a connection is made. This avoids the lights turning off every 2 minutes during a long-term issue.
+* The 2 minute restart is not triggered if no connection has been made since the Sonoff started. The Sonoff then sits in an Offline Mode until a connection is made. This avoids the lights turning off every 2 minutes during a long-term issue.
 
 ## Home Assistant Examples
 **light:**
