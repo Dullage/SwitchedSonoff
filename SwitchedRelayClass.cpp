@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
-#include "SwitchedRelayClass.h"
+#include "SwitchedSonoffClass.h"
 
 switchedRelay::switchedRelay(int switchPin_, int relayPin_, char* deviceStateTopic_, char* deviceControlTopic_, char* switchSpecialPayload_, unsigned long switchIntervalTimeout_)
 {
