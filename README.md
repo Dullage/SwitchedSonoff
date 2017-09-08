@@ -1,3 +1,5 @@
+Note: This repository is currently under construction!
+
 ## Overview
 Alternative Sonoff firmware.
 
