@@ -19,6 +19,25 @@ The following libraries are required and so must be present when compiling.
 * ESP8266WiFi
 * PubSubClient
 
+## Variables
+Before flashing to your Sonoff device you will need to update the following variables:
+
+```
+// Device Variables
+char* deviceControlTopic = "switch/office";
+char* deviceStateTopic = "switch/office/state";
+
+// Wifi Variables
+char* SSID = "<REDACTED>";
+char* WiFiPassword = "<REDACTED>";
+
+// MQTT Variables
+const char* mqtt_server = "<REDACTED>";
+int mqtt_port = <REDACTED>;
+const char* mqttUser = "<REDACTED>";
+const char* mqttPass = "<REDACTED>";
+```
+
 ## Transmission Codes
 | Code | Message |
 |---|---|
