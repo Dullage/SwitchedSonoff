@@ -52,7 +52,7 @@ const char* mqttPass = "<REDACTED>";
 ## Installation & Wiring
 I won't detail how to flash the Sonoff device with this firmware, there are already [plenty of tutorials on this](http://bfy.tw/DpfC).
 
-The Sonoff device can be wired as usual however if you intend on using a switch you will need to attach some additional wires and resistors between the Sonoff and the switch. An example wiring diagram can be found in the repo (WiringExample.png).
+The Sonoff device can be wired as usual however if you intend on using a switch you will need to attach some additional wires and resistors between the Sonoff and the switch. An example wiring diagram can be found in the repo ![(WiringExample.png)](https://raw.githubusercontent.com/Dullage/SwitchedSonoff/master/WiringExample.png).
 
 
 ## Transmission Codes
