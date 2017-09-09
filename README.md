@@ -1,18 +1,18 @@
-Note: This repository is currently under construction!
-
 ## Overview
-Alternative Sonoff firmware.
+Alternative Sonoff firmware with the following benefits:
 
-## Features
 * Works well with Home Assistant.
-* Add functionality to allow for a switch (e.g. wall light switch) to also control the Sonoff device.
+* Optionally allows for a switch (e.g. wall light switch) to also control the Sonoff device.
 * Basic control using simple MQTT commands (e.g. "1" to turn on, "0" to turn off).
-* Trigger a Home Assistant automation with a double toggle of the switch.
-* Restart the ESP with 6 toggles of the switch.
+* Trigger a Home Assistant automation with a double toggle of the switch (duel function switches).
+
+Other features:
+
 * Utilizes a non-blocking reconnect function allowing switch control to continue if MQTT or WiFi connection is lost.
-* Automatic Recovery and Offline Mode (see below)
+* Automatic Recovery and Offline Mode (see below).
 * Retained Statuses - The state is published as a retained message allowing your hub (e.g. Home Assistant) to grab the current state if it is restarted. Also used for recovery.
-* Smart Debounce - Should the ESP detect a switch toggle it will monitor the switch for a further 50ms to ensure it was genuine.
+* Smart Debounce - Should the Sonoff detect a switch toggle it will monitor the switch for a further 50ms to ensure it was genuine.
+* Restart the Sonoff with 6 toggles of the switch.
 
 ## Dependencies
 The following libraries are required and so must be present when compiling.
@@ -25,9 +25,18 @@ The following libraries are required and so must be present when compiling.
 Before flashing to your Sonoff device you will need to update the following variables:
 
 ```
-// Device Variables
-char* deviceControlTopic = "switch/office";
-char* deviceStateTopic = "switch/office/state";
+// Send 0 or 1 to this topic to control the Sonoff.
+char* deviceControlTopic = "switch/bathroom_mirror"; 
+
+// The Sonoff will publish its state (0 or 1) on this topic.
+char* deviceStateTopic = "switch/bathroom_mirror/state"; 
+
+// This message will be sent to the topic "automation" when the switch is toggled twice. 
+char* deviceAutomationPayload = "mainBathroomLights";
+
+// The amount of time (in milliseconds) to wait for the switch to be toggled again. 
+// 300 works well for me and is barely noticable. Set to 0 if you don't intend to use this functionality.
+int specialFunctionTimeout = 300; 
 
 // Wifi Variables
 char* SSID = "<REDACTED>";
@@ -39,6 +48,12 @@ int mqtt_port = <REDACTED>;
 const char* mqttUser = "<REDACTED>";
 const char* mqttPass = "<REDACTED>";
 ```
+
+## Installation & Wiring
+I won't detail how to flash the Sonoff device with this firmware, there are already [plenty of tutorials on this](http://bfy.tw/DpfC).
+
+The Sonoff device can be wired as usual however if you intend on using a switch you will need to attach some additional wires and resistors between the Sonoff and the switch. An example wiring diagram can be found in the repo (WiringExample.png).
+
 
 ## Transmission Codes
 | Code | Message |

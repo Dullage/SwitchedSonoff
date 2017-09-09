@@ -1,15 +1,27 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include "SwitchedSonoffClass.h"
+#include "SwitchedRelayClass.h"
 
 #define sonoffRelayPin 12
-#define sonoffGPIOPin 14 //0
+#define sonoffGPIOPin 14
 #define sonoffLED 13
 
-// Device Variables
-char* deviceControlTopic = "switch/office";
-char* deviceStateTopic = "switch/office/state";
+
+// START OF USER VARIABLES
+
+// Send 0 or 1 to this topic to control the Sonoff.
+char* deviceControlTopic = "switch/bathroom_mirror"; 
+
+// The Sonoff will publish its state (0 or 1) on this topic.
+char* deviceStateTopic = "switch/bathroom_mirror/state"; 
+
+// This message will be sent to the topic "automation" when the switch is toggled twice. 
+char* deviceAutomationPayload = "mainBathroomLights";
+
+// The amount of time (in milliseconds) to wait for the switch to be toggled again. 
+// 300 works well for me and is barely noticable. Set to 0 if you don't intend to use this functionality.
+int specialFunctionTimeout = 300; 
 
 // Wifi Variables
 char* SSID = "<REDACTED>";
@@ -23,6 +35,7 @@ const char* mqttPass = "<REDACTED>";
 
 // END OF USER VARIABLES
 
+
 WiFiClient espClient;
 PubSubClient client(espClient);
 
@@ -33,7 +46,7 @@ unsigned long messageInterval = 1000;
 int currentReconnectStep = 0;
 boolean offlineMode = true;
 
-switchedRelay sonoff(sonoffGPIOPin, sonoffRelayPin, deviceStateTopic, deviceControlTopic, "disabled", 0);
+switchedRelay sonoff(sonoffGPIOPin, sonoffRelayPin, deviceStateTopic, deviceControlTopic, deviceAutomationPayload, specialFunctionTimeout);
 
 void reconnect() {
   // IF statements used to complete process in single loop if possible
