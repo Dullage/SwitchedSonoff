@@ -1,3 +1,11 @@
+## What's New?
+
+* **You can now configure the Sonoff over Wifi!**
+* Removed dependancy on SwitchedRelay class.
+* Simpler wiring diagram.
+* Tidied code.
+
+
 ## Overview
 Alternative Sonoff firmware with the following benefits:
 
@@ -5,6 +13,7 @@ Alternative Sonoff firmware with the following benefits:
 * Optionally allows for a switch (e.g. wall light switch) to also control the Sonoff device.
 * Basic control using simple MQTT commands (e.g. "1" to turn on, "0" to turn off).
 * Trigger a Home Assistant automation with a double toggle of the switch (duel function switches).
+* Configuration over WiFi, no need to change any code, just flash the Sonoff and you're away.
 
 Other features:
 
@@ -17,42 +26,54 @@ Other features:
 ## Dependencies
 The following libraries are required and so must be present when compiling.
 
+* FS
+* ArduinoJson
 * Arduino
-* ESP8266WiFi
 * PubSubClient
+* DNSServer
+* ESP8266WebServer
+* WiFiManager
 
-## Variables
-Before flashing to your Sonoff device you will need to update the following variables:
+## Device Variables
 
-```
-// Send 0 or 1 to this topic to control the Sonoff.
-char* deviceControlTopic = "switch/bathroom_mirror"; 
+There is no need to change any variable in the code. Wifi, MQTT and Other settings can be managed in the web portal.
 
-// The Sonoff will publish its state (0 or 1) on this topic.
-char* deviceStateTopic = "switch/bathroom_mirror/state"; 
+To access the portal:
 
-// This message will be sent to the topic "automation" when the switch is toggled twice. 
-char* deviceAutomationPayload = "mainBathroomLights";
+1. Power the Sonoff.
+2. Hold the button on the Sonoff for more than 2 seconds (you should see the LED blink a few times). 
+3. On your phone or computer search for and connect to a WiFi access point called "Sonoff".
+4. You should be automatically directed to the captive portal. If not, open a browser and naviagte to 192.168.4.1.
+5. Press "Configure WiFi".
+6. Select your WiFi network and then complete the rest of the fields.
+7. Once finsihed, press "Save".
+8. The Sonoff should now connect to your WiFi and MQTT server.
 
-// The amount of time (in milliseconds) to wait for the switch to be toggled again. 
-// 300 works well for me and is barely noticable. Set to 0 if you don't intend to use this functionality.
-int specialFunctionTimeout = 300; 
+![(ConfigurationScreenshot.png)](https://raw.githubusercontent.com/Dullage/SwitchedSonoff/master/ConfigurationScreenshot.png)
 
-// Wifi Variables
-char* SSID = "<REDACTED>";
-char* WiFiPassword = "<REDACTED>";
+**Control Topic** - Send 0 or 1 to this topic to control the Sonoff.
 
-// MQTT Variables
-const char* mqtt_server = "<REDACTED>";
-int mqtt_port = <REDACTED>;
-const char* mqttUser = "<REDACTED>";
-const char* mqttPass = "<REDACTED>";
-```
+**State Topic** - The Sonoff will publish its state (0 or 1) on this topic.
+
+**Double Click Payload** - This message will be sent to the topic "automation" when the switch is toggled twice.
+
+**Double Click Timeout** - The amount of time (in milliseconds) to wait for the switch to be toggled again. 300 works well for me and is barely noticable. Set to 0 if you don't intend to use this functionality.
+
+**MQTT Server IP Address** - Your MQTT servers IP address.
+
+**MQTT Server Port** - Your MQTT servers port.
+
+**MQTT User Name** - Your MQTT servers user name.
+
+**MQTT Password** - Your MQTT servers password.
+
 
 ## Installation & Wiring
 I won't detail how to flash the Sonoff device with this firmware, there are already [plenty of tutorials on this](http://bfy.tw/DpfC).
 
-The Sonoff device can be wired as usual however if you intend on using a switch you will need to attach some additional wires and resistors between the Sonoff and the switch. An example wiring diagram can be found in the repo (WiringExample.png).
+*Note: If you flash the Sonoff sucessfully but nothing happens, try flashing the Sonoff with the 'Flash Mode' set to 'DOUT'.*
+
+The Sonoff device can be wired as usual however if you intend on using a switch you will need to attach some additional wires and resistors between the Sonoff and the switch. An example wiring diagram can be found in the repo: ![(WiringExample.png)](https://raw.githubusercontent.com/Dullage/SwitchedSonoff/master/WiringExample.png).
 
 
 ## Transmission Codes
