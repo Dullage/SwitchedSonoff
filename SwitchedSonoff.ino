@@ -1,59 +1,279 @@
+#include <FS.h>
+#include <ArduinoJson.h>
+
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include "SwitchedRelayClass.h"
+
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>
 
 #define sonoffRelayPin 12
 #define sonoffGPIOPin 14
-#define sonoffLED 13
-
-
-// START OF USER VARIABLES
-
-// Send 0 or 1 to this topic to control the Sonoff.
-char* deviceControlTopic = "switch/bathroom_mirror"; 
-
-// The Sonoff will publish its state (0 or 1) on this topic.
-char* deviceStateTopic = "switch/bathroom_mirror/state"; 
-
-// This message will be sent to the topic "automation" when the switch is toggled twice. 
-char* deviceAutomationPayload = "mainBathroomLights";
-
-// The amount of time (in milliseconds) to wait for the switch to be toggled again. 
-// 300 works well for me and is barely noticable. Set to 0 if you don't intend to use this functionality.
-int specialFunctionTimeout = 300; 
-
-// Wifi Variables
-char* SSID = "<REDACTED>";
-char* WiFiPassword = "<REDACTED>";
-
-// MQTT Variables
-const char* mqtt_server = "<REDACTED>";
-int mqtt_port = <REDACTED>;
-const char* mqttUser = "<REDACTED>";
-const char* mqttPass = "<REDACTED>";
-
-// END OF USER VARIABLES
-
+#define sonoffLEDPin 13
+#define sonoffButtonPin 0
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
+
+//////////////////////////////////////
+//// DEVICE SPECIFIC CONFIG START ////
+//////////////////////////////////////
+
+// The variables below can be set in the captive portal available when you connect to the AP so there is 
+// no need to set them here. You can adjust the char lengths if require but make sure to also asjust these
+// in the APButtonCheck() function.
+
+// Send 0 or 1 to this topic to control the 
+char deviceControlTopic[64]; 
+
+// The Sonoff will publish its state (0 or 1) on this topic.
+char deviceStateTopic[64]; 
+
+// This message will be sent to the topic "automation" when the switch is toggled twice. 
+char deviceAutomationPayload[32];
+
+// The amount of time (in milliseconds) to wait for the switch to be toggled again. 
+// 300 works well for me and is barely noticable. Set to 0 if you don't intend to use this functionality.
+char specialFunctionTimeout[4];
+
+// MQTT Server
+char mqttServerIP[16];
+
+// MQTT port
+char mqttPort[6];
+
+// MQTT User Name
+char mqttUser[32];
+
+// MQTT Password
+char mqttPass[32];
+
+////////////////////////////////////
+//// DEVICE SPECIFIC CONFIG END ////
+////////////////////////////////////
+
+
 // Reconnect Variables
 unsigned long reconnectStart = 0;
 unsigned long lastReconnectMessage = 0;
-unsigned long messageInterval = 1000;
+unsigned long ReconnectMessageInterval = 1000;
 int currentReconnectStep = 0;
 boolean offlineMode = true;
 
-switchedRelay sonoff(sonoffGPIOPin, sonoffRelayPin, deviceStateTopic, deviceControlTopic, deviceAutomationPayload, specialFunctionTimeout);
+// Button Variables
+boolean buttonState = 1;
+int buttonTimeout = 2000;
+boolean buttonDebounceLooping = false;
+unsigned long buttonDebounceLoopingStart = 0;
+
+// Switch Variables
+boolean switchState = 0;
+boolean prevSwitchState = 0;
+unsigned long switchIntervalStart, switchIntervalFinish, switchIntervalElapsed;
+int switchCount = 0;
+unsigned long lastSwitchStateChange = 0;
+unsigned long switchDebounceDelay = 50;
+
+// Misc
+boolean relayState;
+boolean recovered = false;
+
+
+void loadConfig() {
+  Serial.println("Mounting FS...");
+
+  if (SPIFFS.begin()) {
+    Serial.println("Mounted file system!");
+    
+    if (SPIFFS.exists("/config.json")) {
+      Serial.println("Reading config file...");
+      File configFile = SPIFFS.open("/config.json", "r");
+      
+      if (configFile) {
+        Serial.println("Config file loaded!");
+        size_t size = configFile.size();
+        
+        // Allocate a buffer to store contents of the file.
+        std::unique_ptr<char[]> buf(new char[size]);
+
+        configFile.readBytes(buf.get(), size);
+        DynamicJsonBuffer jsonBuffer;
+        JsonObject& json = jsonBuffer.parseObject(buf.get());
+        json.printTo(Serial);
+        Serial.println("");
+        
+        if (json.success()) {
+          Serial.println("Parsed json!");
+
+          if (json.containsKey("deviceControlTopic")) {
+            strcpy(deviceControlTopic, json["deviceControlTopic"]);
+          }
+          
+          if (json.containsKey("deviceStateTopic")) {
+            strcpy(deviceStateTopic, json["deviceStateTopic"]);
+          }
+          
+          if (json.containsKey("deviceAutomationPayload")) {
+            strcpy(deviceAutomationPayload, json["deviceAutomationPayload"]);
+          }
+          
+          if (json.containsKey("specialFunctionTimeout")) {
+            strcpy(specialFunctionTimeout, json["specialFunctionTimeout"]);
+          }
+          
+          if (json.containsKey("mqttServerIP")) {
+            strcpy(mqttServerIP, json["mqttServerIP"]);
+          }
+          
+          if (json.containsKey("mqttPort")) {
+            strcpy(mqttPort, json["mqttPort"]);
+          }
+          
+          if (json.containsKey("mqttUser")) {
+            strcpy(mqttUser, json["mqttUser"]);
+          }
+          
+          if (json.containsKey("mqttPass")) {
+            strcpy(mqttPass, json["mqttPass"]);
+          }
+
+        } else {
+          Serial.println("Failed to load json config!");
+        }
+      }
+    }
+  } else {
+    Serial.println("Failed to mount FS!");
+  }
+}
+
+void saveConfig () {
+  Serial.println("Saving config...");
+  DynamicJsonBuffer jsonBuffer;
+  JsonObject& json = jsonBuffer.createObject();
+  
+  json["deviceControlTopic"] = deviceControlTopic;
+  json["deviceStateTopic"] = deviceStateTopic;
+  json["deviceAutomationPayload"] = deviceAutomationPayload;
+  json["specialFunctionTimeout"] = specialFunctionTimeout;
+  json["mqttServerIP"] = mqttServerIP;
+  json["mqttPort"] = mqttPort;
+  json["mqttUser"] = mqttUser;
+  json["mqttPass"] = mqttPass;
+  
+  File configFile = SPIFFS.open("/config.json", "w");
+  if (!configFile) {
+    Serial.println("Failed to open config file for writing!");
+  }
+  
+  json.printTo(Serial);
+  json.printTo(configFile);
+
+  if (configFile) {
+    Serial.println("Config saved!");
+  }
+  
+  configFile.close();
+}
+
+void switchDevice(boolean targetState) {
+  // Off
+  if (targetState == 0) {
+    digitalWrite(sonoffRelayPin, LOW); // Turn the relay off
+    client.publish(deviceStateTopic, "0", true); // Publish the state change
+    relayState = 0; // Keep a local record of the current state
+  }
+  // On
+  else if (targetState == 1) {
+    digitalWrite(sonoffRelayPin, HIGH); // Turn the relay off
+    client.publish(deviceStateTopic, "1", true); // Publish the state change
+    relayState = 1; // Keep a local record of the current state
+  }
+}
+
+void switchCheck() {
+  // Lap the timer
+  switchIntervalFinish = millis();
+
+  // Calculate the elapsed time, set to 0 if it's the first press
+  if (switchCount == 0) {
+    switchIntervalElapsed = 0;
+  }
+  else {
+    switchIntervalElapsed = switchIntervalFinish - switchIntervalStart;
+  }
+
+  // Check for a change in state, if changed loop for the deboucneDelay to check it's real
+  switchState = digitalRead(sonoffGPIOPin);
+  if (switchState != prevSwitchState) {
+    unsigned long loopStart = millis();
+    int supportive = 0;
+    int unsupportive = 0;
+
+    // Loop
+    while ((millis() - loopStart) < switchDebounceDelay) {
+      switchState = digitalRead(sonoffGPIOPin);
+      if (switchState != prevSwitchState) {
+        supportive++;
+      }
+      else {
+        unsupportive++;
+      }
+    }
+
+    // Calculate the findings and report
+    if (supportive > unsupportive) {
+      switchIntervalStart = millis();
+      lastSwitchStateChange = millis();
+      switchCount += 1;
+      prevSwitchState = switchState;
+    }
+  }
+
+  // If the elapsed time is greater that the timeout and the count is higher than 0, do stuff and reset the count
+  if (switchIntervalElapsed > atoi(specialFunctionTimeout) && switchCount > 0) {
+    // If the count is odd, toggle the light 
+    if ((switchCount % 2) != 0) {
+      if (relayState == 0) {
+        switchDevice(1);
+      }
+      else {
+        switchDevice(0);
+      }
+    }
+
+    // If the count is 2, send the special command
+    else if (switchCount == 2) {
+      client.publish("automation", deviceAutomationPayload);
+    }
+
+    // If the count is 6, restart the ESP
+    else if (switchCount == 6) {
+      digitalWrite(sonoffRelayPin, LOW);
+      delay(300);
+      digitalWrite(sonoffRelayPin, HIGH);
+      delay(300);
+      digitalWrite(sonoffRelayPin, LOW);
+      delay(300);
+      digitalWrite(sonoffRelayPin, HIGH);
+      delay(300);
+      digitalWrite(sonoffRelayPin, LOW);
+      ESP.restart();
+    }
+
+    // Reset the count
+    switchCount = 0;
+  }
+}
 
 void reconnect() {
   // IF statements used to complete process in single loop if possible
 
   // 0 - Turn the LED on and log the reconnect start time
   if (currentReconnectStep == 0) {
-    digitalWrite(sonoffLED, LOW);
+    digitalWrite(sonoffLEDPin, LOW);
     reconnectStart = millis();
     currentReconnectStep++;
   }
@@ -61,7 +281,7 @@ void reconnect() {
   // 1 - Check WiFi Connection
   if (currentReconnectStep == 1) {
     if (WiFi.status() != WL_CONNECTED) {
-      if ((millis() - lastReconnectMessage) > messageInterval) {
+      if ((millis() - lastReconnectMessage) > ReconnectMessageInterval) {
         Serial.print("Awaiting WiFi Connection (");
         Serial.print((millis() - reconnectStart) / 1000);
         Serial.println("s)");
@@ -85,7 +305,9 @@ void reconnect() {
   // 2 - Check MQTT Connection
   if (currentReconnectStep == 2) {
     if (!client.connected()) {
-      if ((millis() - lastReconnectMessage) > messageInterval) {
+      client.setServer(mqttServerIP, atoi(mqttPort));
+      
+      if ((millis() - lastReconnectMessage) > ReconnectMessageInterval) {
         Serial.print("Awaiting MQTT Connection (");
         Serial.print((millis() - reconnectStart) / 1000);
         Serial.println("s)");
@@ -126,10 +348,10 @@ void reconnect() {
 
   // 3 - All connected, turn the LED back on, subscribe to the MQTT topics and then set offlineMode to false
   if (currentReconnectStep == 3) {
-    digitalWrite(sonoffLED, HIGH);  // Turn the LED off
+    digitalWrite(sonoffLEDPin, HIGH);  // Turn the LED off
 
-    client.subscribe(sonoff.deviceControlTopic);
-    client.subscribe(sonoff.deviceStateTopic);
+    client.subscribe(deviceControlTopic);
+    client.subscribe(deviceStateTopic);
 
     if (offlineMode == true) {
       offlineMode = false;
@@ -144,46 +366,110 @@ void reconnect() {
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println("------------------- MQTT Recieved -------------------");
 
-  if (((String(sonoff.deviceControlTopic).equals(topic)) && (length == 1)) | (String(sonoff.deviceStateTopic).equals(topic) && sonoff.recovered == false)) {
+  if (((String(deviceControlTopic).equals(topic)) && (length == 1)) | (String(deviceStateTopic).equals(topic) && recovered == false)) {
     if ((char)payload[0] == '0') {
-      sonoff.switchDevice(0);
+      switchDevice(0);
     }
     else if ((char)payload[0] == '1') {
-      sonoff.switchDevice(1);
+      switchDevice(1);
     }
 
-    sonoff.recovered = true;
-  }
-}
-
-void mqttBus() {
-  if (sonoff.newStatusMessage == true) {
-    client.publish(sonoff.deviceStateTopic, sonoff.newPayload, true);
-    sonoff.newStatusMessage = false;
-  }
-  if (sonoff.newSpecialMessage == true) {
-    client.publish("automation", sonoff.switchSpecialPayload);
-    sonoff.newSpecialMessage = false;
+    recovered = true;
   }
 }
 
 void setup() {
+  //If you having problems, uncomment this, flash the ESP and let it run, then comment this out and try again.
+  //SPIFFS.format();
+  
   // Serial
   Serial.begin(115200);
   Serial.println("");
-  Serial.println("");
+  Serial.println("Serial Started");
+
+  // Config
+  loadConfig();
 
   // LED
-  pinMode(sonoffLED, OUTPUT);     // Initialize the sonoffLED pin as an output
-  digitalWrite(sonoffLED, LOW);   // Turn the LED on to indicate no connection
+  pinMode(sonoffLEDPin, OUTPUT);     // Initialize the sonoffLEDPin pin as an output
+  digitalWrite(sonoffLEDPin, LOW);   // Turn the LED on to indicate no connection
 
-                    // WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(SSID, WiFiPassword);
+  // Relay Setup
+  pinMode(sonoffRelayPin, OUTPUT);      // Initialize the sonoffRelayPin pin as an output
+  digitalWrite(sonoffRelayPin, LOW);    // Turn device off as default
 
-  // MQTT
-  client.setServer(mqtt_server, mqtt_port);
+  // Switch Setup
+  pinMode(sonoffGPIOPin, INPUT);                  // Initialize the sonoffGPIOPin as an input
+  prevSwitchState = digitalRead(sonoffGPIOPin);   // Populate prevSwitchState with the startup state
+
+  // MQTT Callback
   client.setCallback(callback);
+}
+
+void APButtonCheck() {
+  buttonState = digitalRead(sonoffButtonPin);
+
+  if (buttonState == 0) {
+    if (buttonDebounceLooping == false) {
+      buttonDebounceLooping = true;
+      buttonDebounceLoopingStart = millis();
+      Serial.println("Button pressed, timing...");
+    }
+    else { // buttonDebounceLooping = true
+      if (millis() >= (buttonDebounceLoopingStart + buttonTimeout)) {
+        Serial.println("...time reached, switching to config mode!");
+        
+        // Flash the LED
+        digitalWrite(sonoffLEDPin, HIGH);
+        delay(200);
+        digitalWrite(sonoffLEDPin, LOW);
+        delay(200);
+        digitalWrite(sonoffLEDPin, HIGH);
+        delay(200);
+        digitalWrite(sonoffLEDPin, LOW);
+        delay(200);
+        digitalWrite(sonoffLEDPin, HIGH);
+        delay(200);
+        digitalWrite(sonoffLEDPin, LOW);
+
+        WiFiManagerParameter custom_deviceControlTopic("deviceControlTopic", "Control Topic e.g. switch/lamp", deviceControlTopic, 64);
+        WiFiManagerParameter custom_deviceStateTopic("deviceStateTopic", "State Topic e.g. switch/lamp/state", deviceStateTopic, 64);
+        WiFiManagerParameter custom_deviceAutomationPayload("deviceAutomationPayload", "Double Click Payload e.g. lamp", deviceAutomationPayload, 32);
+        WiFiManagerParameter custom_specialFunctionTimeout("specialFunctionTimeout", "300 = Enabled, 0 = Disabled", specialFunctionTimeout, 4);
+        WiFiManagerParameter custom_mqttServerIP("mqttServerIP", "MQTT Server IP Address", mqttServerIP, 16);
+        WiFiManagerParameter custom_mqttPort("mqttPort", "MQTT Server Port", mqttPort, 6);
+        WiFiManagerParameter custom_mqttUser("mqttUser", "MQTT User Name", mqttUser, 32);
+        WiFiManagerParameter custom_mqttPass("mqttPass", "MQTT Password", mqttPass, 32);
+
+        WiFiManager wifiManager;
+        
+        wifiManager.addParameter(&custom_deviceControlTopic);
+        wifiManager.addParameter(&custom_deviceStateTopic);
+        wifiManager.addParameter(&custom_deviceAutomationPayload);
+        wifiManager.addParameter(&custom_specialFunctionTimeout);
+        wifiManager.addParameter(&custom_mqttServerIP);
+        wifiManager.addParameter(&custom_mqttPort);
+        wifiManager.addParameter(&custom_mqttUser);
+        wifiManager.addParameter(&custom_mqttPass);
+        
+        wifiManager.startConfigPortal("Sonoff");
+
+        strcpy(deviceControlTopic, custom_deviceControlTopic.getValue());
+        strcpy(deviceStateTopic, custom_deviceStateTopic.getValue());
+        strcpy(deviceAutomationPayload, custom_deviceAutomationPayload.getValue());
+        strcpy(specialFunctionTimeout, custom_specialFunctionTimeout.getValue());
+        strcpy(mqttServerIP, custom_mqttServerIP.getValue());
+        strcpy(mqttPort, custom_mqttPort.getValue());
+        strcpy(mqttUser, custom_mqttUser.getValue());
+        strcpy(mqttPass, custom_mqttPass.getValue());
+
+        saveConfig(); 
+      }
+    }
+  }
+  else { // buttonState == 1
+    buttonDebounceLooping = false;
+  }
 }
 
 void loop() {
@@ -192,8 +478,8 @@ void loop() {
   }
   else {
     client.loop();
-    mqttBus();
   }
 
-  sonoff.switchCheck();
+  APButtonCheck();
+  switchCheck();
 }
