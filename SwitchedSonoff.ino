@@ -23,7 +23,7 @@ PubSubClient client(espClient);
 
 // The variables below can be set in the captive portal available when you connect to the AP so there is 
 // no need to set them here. You can adjust the char lengths if require but make sure to also asjust these
-// in the APButtonCheck() function.
+// in the sonoffButtonCheck() function.
 
 // Send 0 or 1 to this topic to control the 
 char deviceControlTopic[64]; 
@@ -58,22 +58,24 @@ char mqttPass[32];
 // Reconnect Variables
 unsigned long reconnectStart = 0;
 unsigned long lastReconnectMessage = 0;
-unsigned long ReconnectMessageInterval = 1000;
+unsigned long reconnectMessageInterval = 1000;
 int currentReconnectStep = 0;
 boolean offlineMode = true;
 
 // Button Variables
-boolean buttonState = 1;
-int buttonTimeout = 2000;
-boolean buttonDebounceLooping = false;
-unsigned long buttonDebounceLoopingStart = 0;
+boolean buttonState = 1; // Sonoff button is high when open
+int buttonDebounceTime = 20;
+int buttonLongPressTime = 2000; // 2000 = 2s
+boolean buttonTiming = false;
+unsigned long buttonTimingStart = 0;
+int buttonAction = 0; // 0 = No action to perform, 1 = Perform short press action, 2 = Perform long press action
 
 // Switch Variables
 boolean switchState = 0;
-boolean prevSwitchState = 0;
+boolean switchPreviousState = 0;
 unsigned long switchIntervalStart, switchIntervalFinish, switchIntervalElapsed;
 int switchCount = 0;
-unsigned long lastSwitchStateChange = 0;
+unsigned long switchLastStateChange = 0;
 unsigned long switchDebounceDelay = 50;
 
 // Misc
@@ -178,7 +180,7 @@ void saveConfig () {
   configFile.close();
 }
 
-void switchDevice(boolean targetState) {
+void sonoffRelaySwitch(boolean targetState) {
   // Off
   if (targetState == 0) {
     digitalWrite(sonoffRelayPin, LOW); // Turn the relay off
@@ -190,6 +192,15 @@ void switchDevice(boolean targetState) {
     digitalWrite(sonoffRelayPin, HIGH); // Turn the relay off
     client.publish(deviceStateTopic, "1", true); // Publish the state change
     relayState = 1; // Keep a local record of the current state
+  }
+}
+
+void sonoffRelayToggle() {
+  if (relayState == 0) {
+    sonoffRelaySwitch(1);
+  }
+  else {
+    sonoffRelaySwitch(0);
   }
 }
 
@@ -207,7 +218,7 @@ void switchCheck() {
 
   // Check for a change in state, if changed loop for the deboucneDelay to check it's real
   switchState = digitalRead(sonoffGPIOPin);
-  if (switchState != prevSwitchState) {
+  if (switchState != switchPreviousState) {
     unsigned long loopStart = millis();
     int supportive = 0;
     int unsupportive = 0;
@@ -215,7 +226,7 @@ void switchCheck() {
     // Loop
     while ((millis() - loopStart) < switchDebounceDelay) {
       switchState = digitalRead(sonoffGPIOPin);
-      if (switchState != prevSwitchState) {
+      if (switchState != switchPreviousState) {
         supportive++;
       }
       else {
@@ -226,9 +237,9 @@ void switchCheck() {
     // Calculate the findings and report
     if (supportive > unsupportive) {
       switchIntervalStart = millis();
-      lastSwitchStateChange = millis();
+      switchLastStateChange = millis();
       switchCount += 1;
-      prevSwitchState = switchState;
+      switchPreviousState = switchState;
     }
   }
 
@@ -236,12 +247,7 @@ void switchCheck() {
   if (switchIntervalElapsed > atoi(specialFunctionTimeout) && switchCount > 0) {
     // If the count is odd, toggle the light 
     if ((switchCount % 2) != 0) {
-      if (relayState == 0) {
-        switchDevice(1);
-      }
-      else {
-        switchDevice(0);
-      }
+      sonoffRelayToggle();
     }
 
     // If the count is 2, send the special command
@@ -281,7 +287,7 @@ void reconnect() {
   // 1 - Check WiFi Connection
   if (currentReconnectStep == 1) {
     if (WiFi.status() != WL_CONNECTED) {
-      if ((millis() - lastReconnectMessage) > ReconnectMessageInterval) {
+      if ((millis() - lastReconnectMessage) > reconnectMessageInterval) {
         Serial.print("Awaiting WiFi Connection (");
         Serial.print((millis() - reconnectStart) / 1000);
         Serial.println("s)");
@@ -307,7 +313,7 @@ void reconnect() {
     if (!client.connected()) {
       client.setServer(mqttServerIP, atoi(mqttPort));
       
-      if ((millis() - lastReconnectMessage) > ReconnectMessageInterval) {
+      if ((millis() - lastReconnectMessage) > reconnectMessageInterval) {
         Serial.print("Awaiting MQTT Connection (");
         Serial.print((millis() - reconnectStart) / 1000);
         Serial.println("s)");
@@ -368,10 +374,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   if (((String(deviceControlTopic).equals(topic)) && (length == 1)) | (String(deviceStateTopic).equals(topic) && recovered == false)) {
     if ((char)payload[0] == '0') {
-      switchDevice(0);
+      sonoffRelaySwitch(0);
     }
     else if ((char)payload[0] == '1') {
-      switchDevice(1);
+      sonoffRelaySwitch(1);
     }
 
     recovered = true;
@@ -400,75 +406,102 @@ void setup() {
 
   // Switch Setup
   pinMode(sonoffGPIOPin, INPUT);                  // Initialize the sonoffGPIOPin as an input
-  prevSwitchState = digitalRead(sonoffGPIOPin);   // Populate prevSwitchState with the startup state
+  switchPreviousState = digitalRead(sonoffGPIOPin);   // Populate switchPreviousState with the startup state
 
   // MQTT Callback
   client.setCallback(callback);
+
+  // Sonoff Button Setup
+  pinMode(sonoffButtonPin, INPUT);   // Initialize the sonoffButtonPin as an input
 }
 
-void APButtonCheck() {
+void buttonLongPressAction() {
+  Serial.println("Switching to config mode!");
+        
+  // Flash the LED
+  digitalWrite(sonoffLEDPin, HIGH);
+  delay(200);
+  digitalWrite(sonoffLEDPin, LOW);
+  delay(200);
+  digitalWrite(sonoffLEDPin, HIGH);
+  delay(200);
+  digitalWrite(sonoffLEDPin, LOW);
+  delay(200);
+  digitalWrite(sonoffLEDPin, HIGH);
+  delay(200);
+  digitalWrite(sonoffLEDPin, LOW);
+
+  WiFiManagerParameter custom_deviceControlTopic("deviceControlTopic", "Control Topic e.g. switch/lamp", deviceControlTopic, 64);
+  WiFiManagerParameter custom_deviceStateTopic("deviceStateTopic", "State Topic e.g. switch/lamp/state", deviceStateTopic, 64);
+  WiFiManagerParameter custom_deviceAutomationPayload("deviceAutomationPayload", "Double Click Payload e.g. lamp", deviceAutomationPayload, 32);
+  WiFiManagerParameter custom_specialFunctionTimeout("specialFunctionTimeout", "300 = Enabled, 0 = Disabled", specialFunctionTimeout, 4);
+  WiFiManagerParameter custom_mqttServerIP("mqttServerIP", "MQTT Server IP Address", mqttServerIP, 16);
+  WiFiManagerParameter custom_mqttPort("mqttPort", "MQTT Server Port", mqttPort, 6);
+  WiFiManagerParameter custom_mqttUser("mqttUser", "MQTT User Name", mqttUser, 32);
+  WiFiManagerParameter custom_mqttPass("mqttPass", "MQTT Password", mqttPass, 32);
+
+  WiFiManager wifiManager;
+  
+  wifiManager.addParameter(&custom_deviceControlTopic);
+  wifiManager.addParameter(&custom_deviceStateTopic);
+  wifiManager.addParameter(&custom_deviceAutomationPayload);
+  wifiManager.addParameter(&custom_specialFunctionTimeout);
+  wifiManager.addParameter(&custom_mqttServerIP);
+  wifiManager.addParameter(&custom_mqttPort);
+  wifiManager.addParameter(&custom_mqttUser);
+  wifiManager.addParameter(&custom_mqttPass);
+  
+  wifiManager.startConfigPortal("Sonoff");
+
+  strcpy(deviceControlTopic, custom_deviceControlTopic.getValue());
+  strcpy(deviceStateTopic, custom_deviceStateTopic.getValue());
+  strcpy(deviceAutomationPayload, custom_deviceAutomationPayload.getValue());
+  strcpy(specialFunctionTimeout, custom_specialFunctionTimeout.getValue());
+  strcpy(mqttServerIP, custom_mqttServerIP.getValue());
+  strcpy(mqttPort, custom_mqttPort.getValue());
+  strcpy(mqttUser, custom_mqttUser.getValue());
+  strcpy(mqttPass, custom_mqttPass.getValue());
+
+  saveConfig(); 
+}
+
+void buttonShortPressAction() {
+  sonoffRelayToggle();
+}
+
+void sonoffButtonCheck() {
   buttonState = digitalRead(sonoffButtonPin);
 
-  if (buttonState == 0) {
-    if (buttonDebounceLooping == false) {
-      buttonDebounceLooping = true;
-      buttonDebounceLoopingStart = millis();
+  if (buttonState == 0) { // The button is pressed
+    if (buttonTiming == false) {
+      buttonTiming = true;
+      buttonTimingStart = millis();
       Serial.println("Button pressed, timing...");
     }
-    else { // buttonDebounceLooping = true
-      if (millis() >= (buttonDebounceLoopingStart + buttonTimeout)) {
-        Serial.println("...time reached, switching to config mode!");
-        
-        // Flash the LED
-        digitalWrite(sonoffLEDPin, HIGH);
-        delay(200);
-        digitalWrite(sonoffLEDPin, LOW);
-        delay(200);
-        digitalWrite(sonoffLEDPin, HIGH);
-        delay(200);
-        digitalWrite(sonoffLEDPin, LOW);
-        delay(200);
-        digitalWrite(sonoffLEDPin, HIGH);
-        delay(200);
-        digitalWrite(sonoffLEDPin, LOW);
-
-        WiFiManagerParameter custom_deviceControlTopic("deviceControlTopic", "Control Topic e.g. switch/lamp", deviceControlTopic, 64);
-        WiFiManagerParameter custom_deviceStateTopic("deviceStateTopic", "State Topic e.g. switch/lamp/state", deviceStateTopic, 64);
-        WiFiManagerParameter custom_deviceAutomationPayload("deviceAutomationPayload", "Double Click Payload e.g. lamp", deviceAutomationPayload, 32);
-        WiFiManagerParameter custom_specialFunctionTimeout("specialFunctionTimeout", "300 = Enabled, 0 = Disabled", specialFunctionTimeout, 4);
-        WiFiManagerParameter custom_mqttServerIP("mqttServerIP", "MQTT Server IP Address", mqttServerIP, 16);
-        WiFiManagerParameter custom_mqttPort("mqttPort", "MQTT Server Port", mqttPort, 6);
-        WiFiManagerParameter custom_mqttUser("mqttUser", "MQTT User Name", mqttUser, 32);
-        WiFiManagerParameter custom_mqttPass("mqttPass", "MQTT Password", mqttPass, 32);
-
-        WiFiManager wifiManager;
-        
-        wifiManager.addParameter(&custom_deviceControlTopic);
-        wifiManager.addParameter(&custom_deviceStateTopic);
-        wifiManager.addParameter(&custom_deviceAutomationPayload);
-        wifiManager.addParameter(&custom_specialFunctionTimeout);
-        wifiManager.addParameter(&custom_mqttServerIP);
-        wifiManager.addParameter(&custom_mqttPort);
-        wifiManager.addParameter(&custom_mqttUser);
-        wifiManager.addParameter(&custom_mqttPass);
-        
-        wifiManager.startConfigPortal("Sonoff");
-
-        strcpy(deviceControlTopic, custom_deviceControlTopic.getValue());
-        strcpy(deviceStateTopic, custom_deviceStateTopic.getValue());
-        strcpy(deviceAutomationPayload, custom_deviceAutomationPayload.getValue());
-        strcpy(specialFunctionTimeout, custom_specialFunctionTimeout.getValue());
-        strcpy(mqttServerIP, custom_mqttServerIP.getValue());
-        strcpy(mqttPort, custom_mqttPort.getValue());
-        strcpy(mqttUser, custom_mqttUser.getValue());
-        strcpy(mqttPass, custom_mqttPass.getValue());
-
-        saveConfig(); 
+    else { // buttonTiming = true
+      if (millis() >= (buttonTimingStart + buttonDebounceTime)) { // The button has been pressed longer than the debounce time, update the action to perform when the button is released
+        buttonAction = 1;
+      }
+      
+      if (millis() >= (buttonTimingStart + buttonLongPressTime)) { // The button has been pressed longer than the long press time, update the action to perform when the button is released
+        buttonAction = 2;
       }
     }
   }
-  else { // buttonState == 1
-    buttonDebounceLooping = false;
+  else { // buttonState == 1, the button is released
+    buttonTiming = false;
+
+    if (buttonAction != 0) { // There is an action to perform
+      if (buttonAction == 1) { // Perform the short press action
+        buttonShortPressAction();
+      }
+
+      if (buttonAction == 2) { // Perform the short press action
+        buttonLongPressAction();
+      }
+
+      buttonAction = 0; // Reset the buttonAction variable so that the action is only performed once
+    }
   }
 }
 
@@ -480,6 +513,6 @@ void loop() {
     client.loop();
   }
 
-  APButtonCheck();
+  sonoffButtonCheck();
   switchCheck();
 }

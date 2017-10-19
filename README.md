@@ -1,5 +1,9 @@
 ## What's New?
 
+### 19th October 2017
+* A short press of the Sonoff button will now toggle the power (and update the status over MQTT of course).
+
+### 14th October 2017
 * **You can now configure the Sonoff over Wifi!**
 * Removed dependancy on SwitchedRelay class.
 * Simpler wiring diagram.
@@ -13,7 +17,8 @@ Alternative Sonoff firmware with the following benefits:
 * Optionally allows for a switch (e.g. wall light switch) to also control the Sonoff device.
 * Basic control using simple MQTT commands (e.g. "1" to turn on, "0" to turn off).
 * Trigger a Home Assistant automation with a double toggle of the switch (duel function switches).
-* Configuration over WiFi, no need to change any code, just flash the Sonoff and you're away.
+* Toggle the power with a short press of the Sonoff button.
+* Configuration over WiFi (long press of Sonoff button), no need to change any code, just flash the Sonoff and you're away.
 
 Other features:
 
